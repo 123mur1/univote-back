@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ﻿# UniVote backend
 
 Standalone NestJS REST API for UniVote. It is intentionally not connected to the frontend yet; frontend integration will be a later step.
@@ -37,3 +38,6 @@ Use JSON requests for registry import (`rows` plus `mode` and optional `sourceFi
 - OTP codes are returned by the API in development for manual flows. A production SMS/email delivery provider is not configured.
 - Ballots are accepted as client-encrypted opaque payloads; the server records participation separately and does not store selections in plaintext.
 - Configure CORS through comma-separated `CORS_ORIGINS` when the frontend is integrated.
+=======
+# univote-back
+>>>>>>> 92af8b732a9d0e71ad2fb8908f893d67892f13ed
