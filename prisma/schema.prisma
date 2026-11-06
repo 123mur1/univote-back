@@ -1,0 +1,486 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  STUDENT
+  ELECTION_OFFICER
+  SYSTEM_ADMINISTRATOR
+}
+
+enum Gender {
+  FEMALE
+  MALE
+}
+
+enum StudyLevel {
+  UNDERGRADUATE
+  POSTGRADUATE
+}
+
+enum EnrolmentStatus {
+  ACTIVE
+  DEFERRED
+  SUSPENDED
+  GRADUATED
+  WITHDRAWN
+}
+
+enum ElectionStatus {
+  UPCOMING
+  OPEN
+  CLOSED
+  PUBLISHED
+}
+
+enum ElectionScopeLevel {
+  UNIVERSITY
+  COLLEGE
+  SCHOOL
+  DEPARTMENT
+  CAMPUS
+}
+
+enum NominationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DocumentKind {
+  PHOTO
+  CV
+  COVER_LETTER
+}
+
+enum DocumentReviewStatus {
+  VERIFIED
+  FLAGGED
+}
+
+enum NominationReviewAction {
+  DOCUMENT_VERIFIED
+  DOCUMENT_FLAGGED
+  APPROVED
+  REJECTED
+  REOPENED
+}
+
+enum ElectionAuditRole {
+  SYSTEM
+  ELECTION_OFFICER
+  ADMINISTRATOR
+  AUDITOR
+  VOTER
+}
+
+enum ActivityActorRole {
+  STUDENT
+  ELECTION_OFFICER
+  ADMINISTRATOR
+  ANONYMOUS
+}
+
+enum ActivityType {
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  TIMEOUT
+  SIGNUP
+  SIGNUP_BLOCKED
+  VOTE
+  VOTE_BLOCKED
+  ACCOUNT
+  SETTINGS
+  REGISTRY
+  NOMINATION
+  REVIEW
+  ELECTION
+}
+
+enum ActivitySeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum RegistryImportMode {
+  MERGE
+  REPLACE
+}
+
+enum OfficerPermission {
+  MANAGE_ELECTIONS
+  REVIEW_CANDIDATES
+  VIEW_VOTER_ROLL
+  IMPORT_REGISTRY
+  EXPORT_VOTER_ROLL
+  VIEW_AUDIT_LOG
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  role               UserRole
+  name               String
+  email              String?   @unique
+  registrationNumber String?   @unique
+  passwordHash       String
+  active             Boolean   @default(true)
+  failedSignIns      Int       @default(0)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  studentProfile        StudentProfile?
+  createdElections      Election[]                 @relation("ElectionCreator")
+  submittedNominations  Nomination[]               @relation("NominationSubmitter")
+  decidedNominations    Nomination[]               @relation("NominationDecisionActor")
+  nominationReviews     NominationReview[]         @relation("NominationReviewer")
+  documentReviews       NominationDocumentReview[] @relation("DocumentReviewer")
+  voterParticipations   VoterParticipation[]       @relation("VoterAccount")
+  activityEvents        ActivityLog[]              @relation("ActivityActor")
+  electionAuditEntries  ElectionAuditEntry[]       @relation("ElectionAuditActor")
+  registryImports       RegistryImport[]           @relation("RegistryImportActor")
+  oneTimeCodeChallenges OneTimeCodeChallenge[]
+
+  @@index([role, active])
+  @@map("users")
+}
+
+// Current registrar-provided student record. Optional fields are absent from the compact
+// UniVote import template, but are retained when the source workbook supplies them.
+model RegistryRecord {
+  registrationNumber     String          @id
+  firstName              String
+  lastName               String
+  gender                 Gender?
+  dateOfBirth            DateTime?       @db.Date
+  email                  String?
+  collegeCode            String?
+  college                String
+  school                 String
+  department             String
+  programme              String?
+  campus                 String
+  level                  StudyLevel?
+  yearOfStudy            Int?
+  enrolment              EnrolmentStatus @default(ACTIVE)
+  registeredAcademicYear String?
+  studyStart             DateTime?       @db.Date
+  studyEnd               DateTime?       @db.Date
+  importedAt             DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  studentProfile      StudentProfile?
+  nominations         Nomination[]
+  voterParticipations VoterParticipation[]
+
+  @@index([collegeCode, school, department, campus])
+  @@index([enrolment, registeredAcademicYear])
+  @@map("registry_records")
+}
+
+model StudentProfile {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  registrationNumber     String   @unique
+  phone                  String?
+  studentCardName        String?
+  studentCardStorageKey  String?
+  createdForAcademicYear String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registry RegistryRecord @relation(fields: [registrationNumber], references: [registrationNumber], onDelete: Restrict)
+
+  @@map("student_profiles")
+}
+
+model OneTimeCodeChallenge {
+  id         String    @id @default(cuid())
+  userId     String
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("one_time_code_challenges")
+}
+
+model RegistryImport {
+  id             String             @id @default(cuid())
+  sourceFilename String
+  mode           RegistryImportMode
+  importedRows   Int                @default(0)
+  rejectedRows   Int                @default(0)
+  actorId        String?
+  createdAt      DateTime           @default(now())
+
+  actor User? @relation("RegistryImportActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@map("registry_imports")
+}
+
+model Election {
+  id           String             @id @default(cuid())
+  title        String
+  description  String?            @db.Text
+  scopeLevel   ElectionScopeLevel
+  scopeValue   String?
+  closesOn     DateTime           @db.Date
+  status       ElectionStatus     @default(UPCOMING)
+  opensAt      DateTime
+  closesAt     DateTime
+  publicKey    String?            @db.Text
+  resultHash   String?
+  bulletinRoot String?
+  publishedAt  DateTime?
+  createdById  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  contests            Contest[]
+  nominations         Nomination[]
+  encryptedBallots    EncryptedBallot[]
+  voterParticipations VoterParticipation[]
+  auditEntries        ElectionAuditEntry[]
+  createdBy           User?                @relation("ElectionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, opensAt, closesAt])
+  @@index([scopeLevel, scopeValue])
+  @@map("elections")
+}
+
+model Contest {
+  id          String @id @default(cuid())
+  electionId  String
+  title       String
+  description String @default("") @db.Text
+  sortOrder   Int    @default(0)
+  seats       Int    @default(1)
+
+  election    Election     @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  candidates  Candidate[]
+  nominations Nomination[]
+
+  @@unique([electionId, title])
+  @@index([electionId, sortOrder])
+  @@map("contests")
+}
+
+model Nomination {
+  id                    String           @id @default(cuid())
+  electionId            String
+  contestId             String
+  studentRegistrationNo String
+  submittedById         String
+  name                  String
+  email                 String
+  phone                 String
+  slogan                String           @default("")
+  manifesto             String           @db.Text
+  electionFaculty       String?
+  declaredSnapshot      Json
+  registrySnapshot      Json
+  status                NominationStatus @default(PENDING)
+  decisionNote          String?          @db.Text
+  submittedAt           DateTime         @default(now())
+  decidedAt             DateTime?
+  decidedById           String?
+  updatedAt             DateTime         @updatedAt
+
+  election  Election             @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  contest   Contest              @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  student   RegistryRecord       @relation(fields: [studentRegistrationNo], references: [registrationNumber], onDelete: Restrict)
+  submitter User                 @relation("NominationSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  decidedBy User?                @relation("NominationDecisionActor", fields: [decidedById], references: [id], onDelete: SetNull)
+  documents NominationDocument[]
+  reviews   NominationReview[]
+  candidate Candidate?
+
+  @@unique([contestId, studentRegistrationNo])
+  @@index([electionId, status, submittedAt])
+  @@map("nominations")
+}
+
+model NominationDocument {
+  id           String       @id @default(cuid())
+  nominationId String
+  kind         DocumentKind
+  name         String
+  storageKey   String       @db.Text
+  mimeType     String?
+  sizeBytes    Int?
+  uploadedAt   DateTime     @default(now())
+
+  nomination Nomination                 @relation(fields: [nominationId], references: [id], onDelete: Cascade)
+  reviews    NominationDocumentReview[]
+
+  @@index([nominationId, kind])
+  @@map("nomination_documents")
+}
+
+model NominationDocumentReview {
+  id         String               @id @default(cuid())
+  documentId String
+  reviewerId String
+  status     DocumentReviewStatus
+  note       String?              @db.Text
+  reviewedAt DateTime             @default(now())
+
+  document NominationDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  reviewer User               @relation("DocumentReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([documentId, reviewedAt])
+  @@map("nomination_document_reviews")
+}
+
+model NominationReview {
+  id           String                 @id @default(cuid())
+  nominationId String
+  reviewerId   String
+  action       NominationReviewAction
+  previousData Json?
+  newData      Json?
+  note         String?                @db.Text
+  reviewedAt   DateTime               @default(now())
+
+  nomination Nomination @relation(fields: [nominationId], references: [id], onDelete: Cascade)
+  reviewer   User       @relation("NominationReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([nominationId, reviewedAt])
+  @@map("nomination_reviews")
+}
+
+model Candidate {
+  id             String   @id @default(cuid())
+  contestId      String
+  nominationId   String?  @unique
+  name           String
+  photoUrl       String?
+  programme      String
+  year           String
+  manifesto      String   @db.Text
+  publishedVotes Int?
+  createdAt      DateTime @default(now())
+
+  contest    Contest     @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  nomination Nomination? @relation(fields: [nominationId], references: [id], onDelete: SetNull)
+
+  @@index([contestId])
+  @@map("candidates")
+}
+
+// This row only records that a student participated. It is deliberately not related to
+// EncryptedBallot, so the student's identity cannot be joined to their ballot choices.
+model VoterParticipation {
+  id                    String   @id @default(cuid())
+  electionId            String
+  studentRegistrationNo String
+  userId                String
+  castAt                DateTime @default(now())
+
+  election Election       @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  student  RegistryRecord @relation(fields: [studentRegistrationNo], references: [registrationNumber], onDelete: Restrict)
+  user     User           @relation("VoterAccount", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([electionId, studentRegistrationNo])
+  @@unique([electionId, userId])
+  @@index([electionId, castAt])
+  @@map("voter_participations")
+}
+
+// Store only ciphertext and receipt material here. Never add voter/user identifiers or plaintext
+// per-contest selections to this table.
+model EncryptedBallot {
+  id                String   @id @default(cuid())
+  electionId        String
+  encryptedPayload  String   @db.Text
+  receiptHash       String   @unique
+  encryptionVersion String?
+  castAt            DateTime @default(now())
+
+  election Election @relation(fields: [electionId], references: [id], onDelete: Restrict)
+
+  @@index([electionId, castAt])
+  @@map("encrypted_ballots")
+}
+
+// Append-only hash chain for election events. The application must enforce append-only writes.
+model ElectionAuditEntry {
+  sequence     Int               @id @default(autoincrement())
+  electionId   String?
+  actorId      String?
+  actorLabel   String
+  role         ElectionAuditRole
+  action       String            @db.Text
+  occurredAt   DateTime          @default(now())
+  hash         String            @unique
+  previousHash String
+
+  election Election? @relation(fields: [electionId], references: [id], onDelete: Restrict)
+  actor    User?     @relation("ElectionAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([electionId, sequence])
+  @@map("election_audit_entries")
+}
+
+// Operational/security activity history, including before/after values for administrative edits.
+model ActivityLog {
+  id          String            @id @default(cuid())
+  actorId     String?
+  actorLabel  String
+  actorRole   ActivityActorRole
+  type        ActivityType
+  severity    ActivitySeverity  @default(INFO)
+  detail      String            @db.Text
+  beforeValue String?           @db.Text
+  afterValue  String?           @db.Text
+  occurredAt  DateTime          @default(now())
+
+  actor User? @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt])
+  @@index([actorRole, type, occurredAt])
+  @@map("activity_logs")
+}
+
+model SystemSettings {
+  id                 String   @id @default("default")
+  academicYearLabel  String   @default("2026/2027")
+  academicYearStart  DateTime @db.Date
+  academicYearEnd    DateTime @db.Date
+  studentIdleMinutes Int      @default(10)
+  officerIdleMinutes Int      @default(15)
+  adminIdleMinutes   Int      @default(20)
+  warningSeconds     Int      @default(60)
+  studentOtpRequired Boolean  @default(true)
+  officerOtpRequired Boolean  @default(true)
+  passwordMinLength  Int      @default(10)
+  maxFailedLogins    Int      @default(5)
+  allowStudentSignup Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model RolePermission {
+  id         String            @id @default(cuid())
+  role       UserRole          @default(ELECTION_OFFICER)
+  permission OfficerPermission
+  enabled    Boolean           @default(true)
+  updatedAt  DateTime          @updatedAt
+
+  @@unique([role, permission])
+  @@map("role_permissions")
+}
