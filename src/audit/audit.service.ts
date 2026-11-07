@@ -58,12 +58,14 @@ export class AuditService {
   private activityRole(role: UserRole) {
     if (role === UserRole.STUDENT) return ActivityActorRole.STUDENT;
     if (role === UserRole.ELECTION_OFFICER) return ActivityActorRole.ELECTION_OFFICER;
+    if (role === UserRole.DISPUTE_RESOLUTION_COMMITTEE) return ActivityActorRole.DISPUTE_RESOLUTION_COMMITTEE;
     return ActivityActorRole.ADMINISTRATOR;
   }
 
   private auditRole(role?: UserRole): ElectionAuditRole {
     if (role === UserRole.STUDENT) return ElectionAuditRole.VOTER;
     if (role === UserRole.ELECTION_OFFICER) return ElectionAuditRole.ELECTION_OFFICER;
+    if (role === UserRole.DISPUTE_RESOLUTION_COMMITTEE) return ElectionAuditRole.DISPUTE_RESOLUTION_COMMITTEE;
     if (role === UserRole.SYSTEM_ADMINISTRATOR) return ElectionAuditRole.ADMINISTRATOR;
     return ElectionAuditRole.SYSTEM;
   }

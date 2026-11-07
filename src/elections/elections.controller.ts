@@ -22,6 +22,12 @@ export class ElectionsController {
     return this.elections.get(id);
   }
 
+  @Public()
+  @Get(':id/results')
+  results(@Param('id') id: string) {
+    return this.elections.results(id);
+  }
+
   @Roles(UserRole.ELECTION_OFFICER, UserRole.SYSTEM_ADMINISTRATOR)
   @Post()
   create(@CurrentUser() user: AuthenticatedUser, @Body() body: Record<string, unknown>) {
@@ -32,5 +38,11 @@ export class ElectionsController {
   @Patch(':id/status')
   updateStatus(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: { status?: unknown }) {
     return this.elections.updateStatus(user, id, body.status);
+  }
+
+  @Roles(UserRole.ELECTION_OFFICER, UserRole.DISPUTE_RESOLUTION_COMMITTEE, UserRole.SYSTEM_ADMINISTRATOR)
+  @Post(':id/publish')
+  publishResults(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: { resultHash?: unknown; bulletinRoot?: unknown; results?: unknown }) {
+    return this.elections.publishResults(user, id, body);
   }
 }

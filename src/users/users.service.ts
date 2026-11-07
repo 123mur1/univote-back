@@ -63,8 +63,8 @@ export class UsersService {
     const name = this.required(body.name, 'name');
     const email = this.required(body.email, 'email').toLowerCase();
     const password = this.required(body.password, 'password');
-    const role = body.role === 'SYSTEM_ADMINISTRATOR' ? UserRole.SYSTEM_ADMINISTRATOR : body.role === 'ELECTION_OFFICER' ? UserRole.ELECTION_OFFICER : null;
-    if (!role) throw new BadRequestException('role must be ELECTION_OFFICER or SYSTEM_ADMINISTRATOR.');
+    const role = body.role === 'SYSTEM_ADMINISTRATOR' ? UserRole.SYSTEM_ADMINISTRATOR : body.role === 'ELECTION_OFFICER' ? UserRole.ELECTION_OFFICER : body.role === 'DISPUTE_RESOLUTION_COMMITTEE' ? UserRole.DISPUTE_RESOLUTION_COMMITTEE : null;
+    if (!role) throw new BadRequestException('role must be ELECTION_OFFICER, DISPUTE_RESOLUTION_COMMITTEE or SYSTEM_ADMINISTRATOR.');
     const settings = await this.settings();
     if (password.length < settings.passwordMinLength) throw new BadRequestException(`Password must contain at least ${settings.passwordMinLength} characters.`);
     try {

@@ -138,6 +138,7 @@ export class AuthService {
   private activityRole(role: UserRole): ActivityActorRole {
     if (role === UserRole.STUDENT) return ActivityActorRole.STUDENT;
     if (role === UserRole.ELECTION_OFFICER) return ActivityActorRole.ELECTION_OFFICER;
+    if (role === UserRole.DISPUTE_RESOLUTION_COMMITTEE) return ActivityActorRole.DISPUTE_RESOLUTION_COMMITTEE;
     return ActivityActorRole.ADMINISTRATOR;
   }
 
