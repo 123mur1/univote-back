@@ -12,8 +12,30 @@ export class BallotController {
 
   @Roles(UserRole.STUDENT)
   @Post(':id/ballots')
-  cast(@CurrentUser() user: AuthenticatedUser, @Param('id') electionId: string, @Body() body: { encryptedPayload?: unknown }) {
+  cast(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') electionId: string,
+    @Body() body: { encryptedPayload?: unknown },
+  ) {
     return this.ballots.cast(user, electionId, body.encryptedPayload);
+  }
+
+  @Roles(UserRole.STUDENT)
+  @Get(':id/participation')
+  participation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') electionId: string,
+  ) {
+    return this.ballots.participation(user, electionId);
+  }
+
+  @Roles(UserRole.STUDENT)
+  @Get(':id/eligibility')
+  eligibility(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') electionId: string,
+  ) {
+    return this.ballots.eligibility(user, electionId);
   }
 
   @Public()

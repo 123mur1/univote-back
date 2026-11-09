@@ -176,6 +176,8 @@ model RegistryRecord {
   registeredAcademicYear String?
   studyStart             DateTime?       @db.Date
   studyEnd               DateTime?       @db.Date
+  cumulativeGpa          Decimal?        @db.Decimal(4, 2)
+  openDisciplinaryCase   Boolean?
   importedAt             DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
 
@@ -241,6 +243,7 @@ model Election {
   scopeLevel   ElectionScopeLevel
   scopeValue   String?
   closesOn     DateTime           @db.Date
+  nominationsClose DateTime?      @db.Date
   status       ElectionStatus     @default(UPCOMING)
   opensAt      DateTime
   closesAt     DateTime

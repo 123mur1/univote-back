@@ -12,7 +12,15 @@ import { AuditModule } from './audit/audit.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, AuditModule, RegistryModule, ElectionsModule, SettingsModule, UsersModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    AuditModule,
+    RegistryModule,
+    ElectionsModule,
+    SettingsModule,
+    UsersModule,
+  ],
   controllers: [HealthController],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },

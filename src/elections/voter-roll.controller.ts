@@ -11,7 +11,18 @@ export class VoterRollController {
   constructor(private readonly voterRoll: VoterRollService) {}
 
   @Get(':id/voters')
-  list(@CurrentUser() user: AuthenticatedUser, @Param('id') electionId: string, @Query() query: { q?: string; school?: string; voted?: string; page?: string; pageSize?: string }) {
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') electionId: string,
+    @Query()
+    query: {
+      q?: string;
+      school?: string;
+      voted?: string;
+      page?: string;
+      pageSize?: string;
+    },
+  ) {
     return this.voterRoll.list(user, electionId, query);
   }
 }

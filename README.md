@@ -1,43 +1,37 @@
-<<<<<<< HEAD
-﻿# UniVote backend
+# UniVote backend
 
-Standalone NestJS REST API for UniVote. It is intentionally not connected to the frontend yet; frontend integration will be a later step.
+NestJS REST API and Prisma database for UniVote. The API is served under `/api/v1` on port `3001` by default.
 
 ## Local setup
 
 1. Install dependencies with `npm install`.
-2. Copy `.env.example` to `.env` and set `DATABASE_URL` to your Neon PostgreSQL URL. This repository does not contain database credentials.
-3. Set a random `AUTH_TOKEN_SECRET` (at least 32 characters) and `ADMIN_BOOTSTRAP_KEY`.
-4. Generate Prisma Client with `npm run prisma:generate`.
-5. Create and apply the first migration after configuring Neon: `npx prisma migrate dev --name init`. Later deploys use `npm run db:deploy`.
-6. Start locally with `npm run start:dev`; API routes use `/api/v1` and default to port `3001`.
+2. Copy `.env.example` to `.env`. Configure `DATABASE_URL` with the PostgreSQL connection string, generate an `AUTH_TOKEN_SECRET` with at least 32 characters, and set a random `ADMIN_BOOTSTRAP_KEY`.
+3. Generate the Prisma client: `npm run prisma:generate`.
+4. Check the current database migration state with `npx prisma migrate status`. Apply pending migrations with `npm run db:deploy` only after confirming the target database is correct. The checked-in migration history is incremental and expects the existing UniVote schema; it is not a blank-database initialization script.
+5. Start the API with `npm run start:dev`; check `http://localhost:3001/api/v1/health`.
+6. In a separate terminal, configure and start the frontend as described in `../campusvote/README.md`. The default frontend origin is `http://localhost:3000`; set `CORS_ORIGINS` to the exact frontend origins when they differ.
 
-`npm run prisma:validate` checks the schema and `npm run build` compiles the API. Database commands need a working `DATABASE_URL`.
+Never commit `.env` files or share database URLs and signing keys. The deployment environment must provide the same settings through its secret manager.
 
 ## Initial administrator
 
-After the database schema is deployed, make a one-time `POST /api/v1/auth/bootstrap-admin` request with JSON `{ "key": "...", "name": "...", "email": "...", "password": "..." }`. The key must match `ADMIN_BOOTSTRAP_KEY`. Bootstrap is disabled once a system administrator exists. Keep this key private and remove it from the runtime environment after bootstrap.
+Set `ADMIN_BOOTSTRAP_KEY`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`, and optionally `BOOTSTRAP_ADMIN_NAME` in the backend environment before first setup. After the database schema is current, call `POST /api/v1/auth/bootstrap-admin` with `{"setupKey":"<ADMIN_BOOTSTRAP_KEY>"}`. The administrator email and password are read from the backend environment, not the request. Bootstrap refuses to create another administrator once one exists. Remove the bootstrap key and bootstrap password from the runtime environment after setup, then sign in with the configured email and password.
 
 ## API areas
 
-All routes are prefixed with `/api/v1`. Protected endpoints use `Authorization: Bearer <token>`.
+- `GET /api/v1/health`: API health check.
+- `/api/v1/auth`: sign-in, student eligibility and sign-up, OTP verification, current account, logout, and one-time administrator bootstrap.
+- `/api/v1/registry`: registry search and registrar imports.
+- `/api/v1/elections`: elections, nominations, encrypted ballots, participation, results, and voter roll.
+- `/api/v1/users`: administrator account management and students' own registry record.
+- `/api/v1/settings` and `/api/v1/audit`: system settings and audit records.
 
-- `GET /health`: process health.
-- `/auth`: login, student signup, OTP verification, current account, logout, and one-time admin bootstrap.
-- `/registry`: browse records and import registrar rows in merge or replace mode.
-- `/elections`: browse elections and contests, create/manage elections, nominate candidates, review nominations, cast encrypted ballots, and query participation/voter roll.
-- `/users`: administer student/staff accounts, credentials, status, and account unlocks.
-- `/settings`: academic-year/application settings and election-officer permissions.
-- `/audit`: activity log and election audit history.
+Protected endpoints require `Authorization: Bearer <access-token>`. OTP codes are returned by the API only in development; production SMS/email delivery is not configured. Ballots are client-encrypted and stored separately from voter participation. Verify the complete election, key-management, deployment, and incident-response procedures before using the system for a real election.
 
-Use JSON requests for registry import (`rows` plus `mode` and optional `sourceFilename`). The importer maps source workbook headers to the backend fields; student bulk import templates are a frontend deliverable for the later integration phase.
+## Scripts
 
-## Current integration boundaries
-
-- No frontend code or frontend API client is changed here.
-- OTP codes are returned by the API in development for manual flows. A production SMS/email delivery provider is not configured.
-- Ballots are accepted as client-encrypted opaque payloads; the server records participation separately and does not store selections in plaintext.
-- Configure CORS through comma-separated `CORS_ORIGINS` when the frontend is integrated.
-=======
-# univote-back
->>>>>>> 92af8b732a9d0e71ad2fb8908f893d67892f13ed
+- `npm run build`: compile the API.
+- `npm run test -- --runInBand`: run backend unit tests.
+- `npm run prisma:validate`: validate the Prisma schema.
+- `npm run db:deploy`: apply checked-in migrations to the configured database.
+- `npm run start:dev`: start the API in watch mode.

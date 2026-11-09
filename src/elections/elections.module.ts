@@ -9,5 +9,19 @@ import { NominationsService } from './nominations.service';
 import { VoterRollController } from './voter-roll.controller';
 import { VoterRollService } from './voter-roll.service';
 
-@Module({ imports: [AuditModule], controllers: [ElectionsController, BallotController, NominationsController, VoterRollController], providers: [ElectionsService, BallotService, NominationsService, VoterRollService] })
+@Module({
+  imports: [AuditModule],
+  controllers: [
+    ElectionsController,
+    BallotController,
+    NominationsController,
+    VoterRollController,
+  ],
+  providers: [
+    ElectionsService,
+    BallotService,
+    NominationsService,
+    VoterRollService,
+  ],
+})
 export class ElectionsModule {}

@@ -11,17 +11,34 @@ export class RegistryController {
   constructor(private readonly registry: RegistryService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser, @Query() query: { q?: string; campus?: string; college?: string; school?: string; page?: string; pageSize?: string }) {
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query()
+    query: {
+      q?: string;
+      campus?: string;
+      college?: string;
+      school?: string;
+      page?: string;
+      pageSize?: string;
+    },
+  ) {
     return this.registry.list(user, query);
   }
 
   @Get(':registrationNumber')
-  get(@CurrentUser() user: AuthenticatedUser, @Param('registrationNumber') registrationNumber: string) {
+  get(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('registrationNumber') registrationNumber: string,
+  ) {
     return this.registry.get(user, registrationNumber);
   }
 
   @Post('import')
-  import(@CurrentUser() user: AuthenticatedUser, @Body() body: { mode: unknown; sourceFilename: unknown; students: unknown }) {
+  import(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { mode: unknown; sourceFilename: unknown; students: unknown },
+  ) {
     return this.registry.importRows(user, body);
   }
 }

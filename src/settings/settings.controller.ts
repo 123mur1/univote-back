@@ -16,7 +16,10 @@ export class SettingsController {
   }
 
   @Patch()
-  update(@CurrentUser() user: AuthenticatedUser, @Body() body: Record<string, unknown>) {
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: Record<string, unknown>,
+  ) {
     return this.settings.update(user, body);
   }
 
@@ -26,7 +29,10 @@ export class SettingsController {
   }
 
   @Put('officer-permissions')
-  setPermission(@CurrentUser() user: AuthenticatedUser, @Body() body: { permission?: unknown; enabled?: unknown }) {
+  setPermission(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: { permission?: unknown; enabled?: unknown },
+  ) {
     return this.settings.setPermission(user, body.permission, body.enabled);
   }
 }

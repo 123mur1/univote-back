@@ -6,6 +6,10 @@ export class HealthController {
   @Public()
   @Get()
   getHealth() {
-    return { status: 'ok', service: 'univote-api', timestamp: new Date().toISOString() };
+    return {
+      status: 'ok',
+      service: 'univote-api',
+      timestamp: new Date().toISOString(),
+    };
   }
 }

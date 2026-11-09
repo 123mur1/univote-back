@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -11,7 +19,10 @@ export class NominationsController {
 
   @Roles(UserRole.STUDENT)
   @Post()
-  submit(@CurrentUser() user: AuthenticatedUser, @Body() body: Record<string, unknown>) {
+  submit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: Record<string, unknown>,
+  ) {
     return this.nominations.submit(user, body);
   }
 
@@ -23,19 +34,37 @@ export class NominationsController {
 
   @Roles(UserRole.ELECTION_OFFICER, UserRole.SYSTEM_ADMINISTRATOR)
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser, @Query('status') status?: string) {
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: string,
+  ) {
     return this.nominations.list(user, status);
   }
 
   @Roles(UserRole.ELECTION_OFFICER, UserRole.SYSTEM_ADMINISTRATOR)
   @Patch(':id/decision')
-  decide(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() body: { status?: unknown; note?: unknown }) {
+  decide(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: { status?: unknown; note?: unknown },
+  ) {
     return this.nominations.decide(user, id, body);
   }
 
   @Roles(UserRole.ELECTION_OFFICER, UserRole.SYSTEM_ADMINISTRATOR)
+  @Patch(':id/reopen')
+  reopen(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.nominations.reopen(user, id);
+  }
+
+  @Roles(UserRole.ELECTION_OFFICER, UserRole.SYSTEM_ADMINISTRATOR)
   @Patch(':id/documents/:documentId')
-  reviewDocument(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Param('documentId') documentId: string, @Body() body: { status?: unknown; note?: unknown }) {
+  reviewDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('documentId') documentId: string,
+    @Body() body: { status?: unknown; note?: unknown },
+  ) {
     return this.nominations.reviewDocument(user, id, documentId, body);
   }
 }

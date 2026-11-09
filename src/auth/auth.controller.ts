@@ -1,5 +1,9 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
-import { ActivityActorRole, ActivitySeverity, ActivityType } from '@prisma/client';
+import {
+  ActivityActorRole,
+  ActivitySeverity,
+  ActivityType,
+} from '@prisma/client';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import type { AuthenticatedUser } from './auth.types';
@@ -9,7 +13,10 @@ import { hashPassword } from './passwords';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService, private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Public()
   @Post('login')
@@ -25,8 +32,21 @@ export class AuthController {
 
   @Public()
   @Post('students/signup')
-  signup(@Body() body: { registrationNumber: unknown; phone: unknown; password: unknown }) {
+  signup(
+    @Body()
+    body: {
+      registrationNumber: unknown;
+      phone: unknown;
+      password: unknown;
+    },
+  ) {
     return this.auth.signup(body);
+  }
+
+  @Public()
+  @Post('students/eligibility')
+  checkStudentEligibility(@Body() body: { registrationNumber: unknown }) {
+    return this.auth.checkStudentEligibility(body.registrationNumber);
   }
 
   @Get('me')
@@ -45,11 +65,36 @@ export class AuthController {
     const expectedKey = process.env.ADMIN_BOOTSTRAP_KEY;
     const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
     const email = process.env.BOOTSTRAP_ADMIN_EMAIL?.toLowerCase();
-    if (!expectedKey || body.setupKey !== expectedKey || !password || !email) return { success: false, message: 'Admin bootstrap is not configured.' };
-    const existing = await this.prisma.user.findFirst({ where: { role: 'SYSTEM_ADMINISTRATOR' } });
-    if (existing) return { success: false, message: 'An administrator account already exists.' };
-    const user = await this.prisma.user.create({ data: { name: process.env.BOOTSTRAP_ADMIN_NAME ?? 'System Administrator', email, role: 'SYSTEM_ADMINISTRATOR', passwordHash: await hashPassword(password) } });
-    await this.prisma.activityLog.create({ data: { actorId: user.id, actorLabel: user.email ?? user.name, actorRole: ActivityActorRole.ADMINISTRATOR, type: ActivityType.ACCOUNT, severity: ActivitySeverity.WARNING, detail: 'Initial system administrator account created.', beforeValue: 'No administrator account', afterValue: 'System administrator account created' } });
+    if (!expectedKey || body.setupKey !== expectedKey || !password || !email)
+      return { success: false, message: 'Admin bootstrap is not configured.' };
+    const existing = await this.prisma.user.findFirst({
+      where: { role: 'SYSTEM_ADMINISTRATOR' },
+    });
+    if (existing)
+      return {
+        success: false,
+        message: 'An administrator account already exists.',
+      };
+    const user = await this.prisma.user.create({
+      data: {
+        name: process.env.BOOTSTRAP_ADMIN_NAME ?? 'System Administrator',
+        email,
+        role: 'SYSTEM_ADMINISTRATOR',
+        passwordHash: await hashPassword(password),
+      },
+    });
+    await this.prisma.activityLog.create({
+      data: {
+        actorId: user.id,
+        actorLabel: user.email ?? user.name,
+        actorRole: ActivityActorRole.ADMINISTRATOR,
+        type: ActivityType.ACCOUNT,
+        severity: ActivitySeverity.WARNING,
+        detail: 'Initial system administrator account created.',
+        beforeValue: 'No administrator account',
+        afterValue: 'System administrator account created',
+      },
+    });
     return { success: true, message: 'Administrator account created.' };
   }
 }
