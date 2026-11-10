@@ -19,11 +19,25 @@ export class RegistryController {
       campus?: string;
       college?: string;
       school?: string;
+      enrolment?: string;
       page?: string;
       pageSize?: string;
     },
   ) {
     return this.registry.list(user, query);
+  }
+
+  @Get('facets')
+  facets(@CurrentUser() user: AuthenticatedUser) {
+    return this.registry.facets(user);
+  }
+
+  @Post('records')
+  addRecord(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.registry.addRecord(user, body);
   }
 
   @Get(':registrationNumber')

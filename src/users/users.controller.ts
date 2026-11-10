@@ -24,6 +24,20 @@ export class UsersController {
     return this.users.myRegistry(user);
   }
 
+  @Get()
+  all(
+    @Query()
+    query: {
+      q?: string;
+      role?: string;
+      status?: string;
+      page?: string;
+      pageSize?: string;
+    },
+  ) {
+    return this.users.listAll(query);
+  }
+
   @Get('students')
   students(@Query() query: { q?: string; page?: string; pageSize?: string }) {
     return this.users.listStudents(query);
@@ -73,6 +87,11 @@ export class UsersController {
     @Body() body: { active?: unknown },
   ) {
     return this.users.setActive(admin, id, body.active);
+  }
+
+  @Post(':id/revoke-sessions')
+  revoke(@CurrentUser() admin: AuthenticatedUser, @Param('id') id: string) {
+    return this.users.revokeSessions(admin, id);
   }
 
   @Post(':id/unlock')

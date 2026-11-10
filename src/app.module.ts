@@ -10,16 +10,20 @@ import { RegistryModule } from './registry/registry.module';
 import { SettingsModule } from './settings/settings.module';
 import { AuditModule } from './audit/audit.module';
 import { UsersModule } from './users/users.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { StatsModule } from './stats/stats.module';
 
 @Module({
   imports: [
     PrismaModule,
+    NotificationsModule,
     AuthModule,
     AuditModule,
     RegistryModule,
     ElectionsModule,
     SettingsModule,
     UsersModule,
+    StatsModule,
   ],
   controllers: [HealthController],
   providers: [

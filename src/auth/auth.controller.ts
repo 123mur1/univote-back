@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import {
   ActivityActorRole,
   ActivitySeverity,
   ActivityType,
+  UserRole,
 } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
@@ -10,6 +11,7 @@ import type { AuthenticatedUser } from './auth.types';
 import { Public } from './public.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { hashPassword } from './passwords';
+import { Roles } from './roles.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -47,6 +49,26 @@ export class AuthController {
   @Post('students/eligibility')
   checkStudentEligibility(@Body() body: { registrationNumber: unknown }) {
     return this.auth.checkStudentEligibility(body.registrationNumber);
+  }
+
+  @Public()
+  @Post('refresh')
+  refresh(@Body() body: { refreshToken: unknown }) {
+    return this.auth.refresh(body.refreshToken);
+  }
+
+  @Roles(UserRole.SYSTEM_ADMINISTRATOR)
+  @Post('impersonate/:id')
+  impersonate(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.auth.impersonate(admin, id);
+  }
+
+  @Post('impersonation/stop')
+  stopImpersonation(@CurrentUser() user: AuthenticatedUser) {
+    return this.auth.stopImpersonation(user);
   }
 
   @Get('me')

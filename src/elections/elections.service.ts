@@ -18,6 +18,7 @@ import { createPublicKey } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type CreateElectionInput = {
   title?: unknown;
@@ -37,9 +38,105 @@ export class ElectionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
-  list() {
+  // Moves elections through their schedule: upcoming -> open at opensAt, open -> closed at
+  // closesAt. Each transition is a conditional update, so concurrent requests only apply (and
+  // announce) it once.
+  // The database is remote, so every round trip is costly. Status transitions are checked at
+  // most every 15 seconds (always when a ballot is cast) and the academic year is cached briefly.
+  private lastSync = 0;
+  private yearCache: { label: string; at: number } | null = null;
+
+  async academicYearLabel() {
+    if (this.yearCache && Date.now() - this.yearCache.at < 30_000)
+      return this.yearCache.label;
+    const settings = await this.prisma.systemSettings.findUnique({
+      where: { id: 'default' },
+      select: { academicYearLabel: true },
+    });
+    this.yearCache = {
+      label: settings?.academicYearLabel ?? '2026/2027',
+      at: Date.now(),
+    };
+    return this.yearCache.label;
+  }
+
+  async syncStatuses(force = false) {
+    if (!force && Date.now() - this.lastSync < 15_000) return;
+    this.lastSync = Date.now();
+    const now = new Date();
+    const due = await this.prisma.election.findMany({
+      where: {
+        OR: [
+          { status: ElectionStatus.UPCOMING, opensAt: { lte: now } },
+          { status: ElectionStatus.OPEN, closesAt: { lte: now } },
+        ],
+      },
+      select: { id: true, title: true, status: true, closesAt: true },
+    });
+    for (const election of due) {
+      const next =
+        election.closesAt <= now ? ElectionStatus.CLOSED : ElectionStatus.OPEN;
+      const changed = await this.prisma.election.updateMany({
+        where: { id: election.id, status: election.status },
+        data: { status: next },
+      });
+      if (changed.count !== 1) continue;
+      await this.audit.electionEvent({
+        electionId: election.id,
+        actorLabel: 'scheduler',
+        role: ElectionAuditRole.SYSTEM,
+        action: `Election status changed automatically from ${election.status} to ${next}.`,
+      });
+      await this.announceStatus(election.id, election.title, next);
+    }
+  }
+
+  private async announceStatus(
+    id: string,
+    title: string,
+    status: ElectionStatus,
+  ) {
+    if (status === ElectionStatus.OPEN) {
+      await this.notifications.toRoles([UserRole.STUDENT], {
+        kind: 'election',
+        title: `Voting is open: ${title}`,
+        body: 'Check your eligibility, meet the candidates and cast your encrypted ballot before voting closes.',
+        link: `/student/elections/${id}`,
+      });
+      await this.notifications.toRoles(
+        [UserRole.ELECTION_OFFICER, UserRole.SYSTEM_ADMINISTRATOR],
+        {
+          kind: 'election',
+          title: `Voting opened: ${title}`,
+          body: 'Follow live turnout from the monitoring dashboard.',
+          link: '/officer',
+        },
+      );
+    }
+    if (status === ElectionStatus.CLOSED) {
+      await this.notifications.toRoles([UserRole.STUDENT], {
+        kind: 'election',
+        title: `Voting has closed: ${title}`,
+        body: 'Ballots are being counted. You will be notified when official results are published.',
+        link: '/student/results',
+      });
+      await this.notifications.toRoles(
+        [UserRole.ELECTION_OFFICER, UserRole.SYSTEM_ADMINISTRATOR],
+        {
+          kind: 'election',
+          title: `Ready to count: ${title}`,
+          body: 'Voting has closed. Decrypt the ballots with the trustee key and publish the official results.',
+          link: '/officer/elections',
+        },
+      );
+    }
+  }
+
+  async list() {
+    await this.syncStatuses();
     return this.prisma.election
       .findMany({
         include: {
@@ -54,17 +151,12 @@ export class ElectionsService {
         orderBy: { opensAt: 'desc' },
       })
       .then(async (rows) => {
-        const settings = await this.prisma.systemSettings.findUnique({
-          where: { id: 'default' },
-        });
+        const academicYear = await this.academicYearLabel();
         return Promise.all(
           rows.map(async (election) => ({
             ...this.hideUnpublishedTallies(election),
             eligibleCount: await this.prisma.registryRecord.count({
-              where: this.eligibleWhere(
-                election,
-                settings?.academicYearLabel ?? '2026/2027',
-              ),
+              where: this.eligibleWhere(election, academicYear),
             }),
           })),
         );
@@ -72,6 +164,7 @@ export class ElectionsService {
   }
 
   async get(id: string) {
+    await this.syncStatuses();
     const election = await this.prisma.election.findUnique({
       where: { id },
       include: {
@@ -85,16 +178,11 @@ export class ElectionsService {
       },
     });
     if (!election) throw new NotFoundException('Election was not found.');
-    const settings = await this.prisma.systemSettings.findUnique({
-      where: { id: 'default' },
-    });
+    const academicYear = await this.academicYearLabel();
     return {
       ...this.hideUnpublishedTallies(election),
       eligibleCount: await this.prisma.registryRecord.count({
-        where: this.eligibleWhere(
-          election,
-          settings?.academicYearLabel ?? '2026/2027',
-        ),
+        where: this.eligibleWhere(election, academicYear),
       }),
     };
   }
@@ -329,6 +417,29 @@ export class ElectionsService {
       electionId: election.id,
       action: `Created election draft: ${title}.`,
     });
+    const audience =
+      scopeLevel === ElectionScopeLevel.UNIVERSITY
+        ? 'all students'
+        : `students in ${scopeValue}`;
+    const nominationNote = nominationsClose
+      ? `Nominations close ${nominationsClose.toISOString().slice(0, 10)}. `
+      : '';
+    await this.notifications.toRoles([UserRole.STUDENT], {
+      kind: 'election',
+      title: `New election: ${title}`,
+      body: `Open to ${audience}. ${nominationNote}Voting opens ${opensAt.toISOString().slice(0, 16).replace('T', ' ')} UTC.`,
+      link: `/student/elections/${election.id}`,
+    });
+    const positions = `${contests.length} position${contests.length === 1 ? '' : 's'}`;
+    await this.notifications.toRoles(
+      [UserRole.ELECTION_OFFICER, UserRole.SYSTEM_ADMINISTRATOR],
+      {
+        kind: 'election',
+        title: `Election created: ${title}`,
+        body: `${user.name} created this election with ${positions}.`,
+        link: `/officer/elections/${election.id}`,
+      },
+    );
     return election;
   }
 
@@ -407,6 +518,8 @@ export class ElectionsService {
       electionId: id,
       action: `Changed election status from ${current.status} to ${status}.`,
     });
+    if (status !== current.status)
+      await this.announceStatus(id, current.title, status);
     return updated;
   }
 
@@ -496,6 +609,12 @@ export class ElectionsService {
       user,
       electionId: id,
       action: `Official election results published for ${current.title}.`,
+    });
+    await this.notifications.toEveryone({
+      kind: 'result',
+      title: `Results published: ${current.title}`,
+      body: 'Official results are now available, with the result hash for independent verification.',
+      link: `/results/${id}`,
     });
     return updated;
   }

@@ -135,6 +135,7 @@ model User {
   passwordHash       String
   active             Boolean   @default(true)
   failedSignIns      Int       @default(0)
+  sessionVersion     Int       @default(0)
   lastLoginAt        DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -150,6 +151,8 @@ model User {
   electionAuditEntries  ElectionAuditEntry[]       @relation("ElectionAuditActor")
   registryImports       RegistryImport[]           @relation("RegistryImportActor")
   oneTimeCodeChallenges OneTimeCodeChallenge[]
+  notifications         Notification[]
+  notificationReads     NotificationRead[]
 
   @@index([role, active])
   @@map("users")
@@ -489,4 +492,38 @@ model RolePermission {
 
   @@unique([role, permission])
   @@map("role_permissions")
+}
+
+// In-app notifications. A row targets one user (userId), every user with a role (role), or
+// everyone (both null). Read state is tracked per user in NotificationRead.
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String?
+  role      UserRole?
+  kind      String
+  title     String
+  body      String    @db.Text
+  link      String?
+  createdAt DateTime  @default(now())
+
+  user  User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reads NotificationRead[]
+
+  @@index([userId, createdAt])
+  @@index([role, createdAt])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationRead {
+  notificationId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, userId])
+  @@index([userId])
+  @@map("notification_reads")
 }

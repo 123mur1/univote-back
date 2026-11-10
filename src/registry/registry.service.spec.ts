@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { NotificationsService } from '../notifications/notifications.service';
 import { RegistryService } from './registry.service';
 
 describe('RegistryService', () => {
@@ -25,10 +26,12 @@ describe('RegistryService', () => {
           callback(tx),
       ),
     };
+    const notifications = { toRoles: jest.fn().mockResolvedValue(undefined) };
     const module = await Test.createTestingModule({
       providers: [
         RegistryService,
         { provide: PrismaService, useValue: prisma },
+        { provide: NotificationsService, useValue: notifications },
       ],
     }).compile();
     const service = module.get(RegistryService);
@@ -74,6 +77,10 @@ describe('RegistryService', () => {
       maxWait: 10_000,
       timeout: 120_000,
     });
+    expect(notifications.toRoles).toHaveBeenCalledWith(
+      [UserRole.SYSTEM_ADMINISTRATOR, UserRole.ELECTION_OFFICER],
+      expect.objectContaining({ kind: 'registry' }),
+    );
     await module.close();
   });
 });

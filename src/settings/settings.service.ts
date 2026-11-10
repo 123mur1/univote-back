@@ -24,6 +24,26 @@ export class SettingsService {
     return this.ensureSettings();
   }
 
+  async client() {
+    const settings = await this.ensureSettings();
+    const permissions = await this.listPermissions();
+    return {
+      academicYearLabel: settings.academicYearLabel,
+      academicYearStart: settings.academicYearStart,
+      academicYearEnd: settings.academicYearEnd,
+      studentIdleMinutes: settings.studentIdleMinutes,
+      officerIdleMinutes: settings.officerIdleMinutes,
+      adminIdleMinutes: settings.adminIdleMinutes,
+      warningSeconds: settings.warningSeconds,
+      studentOtpRequired: settings.studentOtpRequired,
+      officerOtpRequired: settings.officerOtpRequired,
+      passwordMinLength: settings.passwordMinLength,
+      maxFailedLogins: settings.maxFailedLogins,
+      allowStudentSignup: settings.allowStudentSignup,
+      officerPermissions: permissions,
+    };
+  }
+
   async update(user: AuthenticatedUser, body: Record<string, unknown>) {
     const current = await this.ensureSettings();
     const data: Record<string, unknown> = {};

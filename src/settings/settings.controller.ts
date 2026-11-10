@@ -10,6 +10,19 @@ import { SettingsService } from './settings.service';
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
+  // The settings every portal needs (idle timeouts, permissions, academic year), readable by
+  // any signed-in user. Security-sensitive values stay in the administrator-only endpoint.
+  @Roles(
+    UserRole.STUDENT,
+    UserRole.ELECTION_OFFICER,
+    UserRole.DISPUTE_RESOLUTION_COMMITTEE,
+    UserRole.SYSTEM_ADMINISTRATOR,
+  )
+  @Get('client')
+  client() {
+    return this.settings.client();
+  }
+
   @Get()
   get() {
     return this.settings.get();

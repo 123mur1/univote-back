@@ -20,12 +20,14 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class NominationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async submit(user: AuthenticatedUser, body: Record<string, unknown>) {
@@ -194,6 +196,18 @@ export class NominationsService {
       electionId: contest.electionId,
       action: `Candidate nomination submitted for ${contest.title}.`,
     });
+    await this.notifications.toRoles([UserRole.ELECTION_OFFICER], {
+      kind: 'nomination',
+      title: 'New candidate application',
+      body: `${name} applied for ${contest.title} in ${contest.election.title}.`,
+      link: `/officer/candidates/${nomination.id}`,
+    });
+    await this.notifications.toUser(user.id, {
+      kind: 'nomination',
+      title: 'Application received',
+      body: `Your application for ${contest.title} is waiting for review by the Electoral Commission.`,
+      link: '/student/apply',
+    });
     return nomination;
   }
 
@@ -307,6 +321,17 @@ export class NominationsService {
       user,
       electionId: nomination.electionId,
       action: `${next === NominationStatus.APPROVED ? 'Approved' : 'Rejected'} a candidate nomination for ${nomination.contest.title}.`,
+    });
+    const approved = next === NominationStatus.APPROVED;
+    await this.notifications.toUser(nomination.submittedById, {
+      kind: 'nomination',
+      title: approved
+        ? `You are a candidate for ${nomination.contest.title}`
+        : `Application not approved: ${nomination.contest.title}`,
+      body: approved
+        ? 'Your application was approved. You now appear on the ballot.'
+        : `Reason given by the Electoral Commission: ${note}`,
+      link: '/student',
     });
     return updated;
   }

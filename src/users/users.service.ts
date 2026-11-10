@@ -14,13 +14,16 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { hashPassword } from '../auth/passwords';
+import { forgetCachedUser } from '../auth/auth.guard';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async myRegistry(user: AuthenticatedUser) {
@@ -228,6 +231,11 @@ export class UsersService {
         beforeValue: 'No account',
         afterValue: `${role}; ${name}; active`,
       });
+      await this.notifications.toUser(user.id, {
+        kind: 'account',
+        title: 'Welcome to UniVote',
+        body: `${admin.name} created your ${role === UserRole.SYSTEM_ADMINISTRATOR ? 'administrator' : 'election officer'} account.`,
+      });
       return user;
     } catch (error) {
       if (
@@ -271,7 +279,9 @@ export class UsersService {
         where: { id },
         data: {
           ...data,
-          ...(body.password !== undefined ? { failedSignIns: 0 } : {}),
+          ...(body.password !== undefined
+            ? { failedSignIns: 0, sessionVersion: { increment: 1 } }
+            : {}),
         },
         select: {
           id: true,
@@ -283,6 +293,8 @@ export class UsersService {
           updatedAt: true,
         },
       });
+      forgetCachedUser(id);
+
       await this.audit.activity(admin, {
         type: ActivityType.ACCOUNT,
         severity: ActivitySeverity.WARNING,
@@ -321,7 +333,10 @@ export class UsersService {
     }
     const updated = await this.prisma.user.update({
       where: { id },
-      data: { active: activeValue },
+      data: {
+        active: activeValue,
+        ...(activeValue ? {} : { sessionVersion: { increment: 1 } }),
+      },
       select: {
         id: true,
         name: true,
@@ -331,6 +346,8 @@ export class UsersService {
         active: true,
       },
     });
+    forgetCachedUser(id);
+
     await this.audit.activity(admin, {
       type: ActivityType.ACCOUNT,
       severity: ActivitySeverity.WARNING,
@@ -354,6 +371,8 @@ export class UsersService {
         failedSignIns: true,
       },
     });
+    forgetCachedUser(id);
+
     await this.audit.activity(admin, {
       type: ActivityType.ACCOUNT,
       detail: `Unlocked account ${target.registrationNumber ?? target.email ?? target.name}.`,
@@ -361,6 +380,84 @@ export class UsersService {
       afterValue: '0',
     });
     return updated;
+  }
+
+  async revokeSessions(admin: AuthenticatedUser, id: string) {
+    const target = await this.prisma.user.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('User account was not found.');
+    if (target.id === admin.id)
+      throw new BadRequestException(
+        'Sign out instead of revoking your own sessions.',
+      );
+    await this.prisma.user.update({
+      where: { id },
+      data: { sessionVersion: { increment: 1 } },
+    });
+    forgetCachedUser(id);
+    await this.audit.activity(admin, {
+      type: ActivityType.ACCOUNT,
+      severity: ActivitySeverity.WARNING,
+      detail: `Signed out every session of ${target.registrationNumber ?? target.email ?? target.name}.`,
+    });
+    return { success: true };
+  }
+
+  // Every account in one list for the administrator, with search, role and status filters.
+  async listAll(query: {
+    q?: string;
+    role?: string;
+    status?: string;
+    page?: string;
+    pageSize?: string;
+  }) {
+    const page = this.int(query.page, 1, 1, 100_000);
+    const pageSize = this.int(query.pageSize, 25, 1, 200);
+    const q = query.q?.trim();
+    const role = Object.values(UserRole).find(
+      (value) => value === query.role?.toUpperCase(),
+    );
+    const settings = await this.settings();
+    const maxFailed =
+      'maxFailedLogins' in settings ? Number(settings.maxFailedLogins) : 5;
+    const where: Prisma.UserWhereInput = {
+      ...(role ? { role } : {}),
+      ...(query.status === 'active' ? { active: true } : {}),
+      ...(query.status === 'suspended' ? { active: false } : {}),
+      ...(query.status === 'locked'
+        ? { failedSignIns: { gte: maxFailed } }
+        : {}),
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: 'insensitive' } },
+              { email: { contains: q, mode: 'insensitive' } },
+              { registrationNumber: { contains: q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          role: true,
+          name: true,
+          email: true,
+          registrationNumber: true,
+          active: true,
+          failedSignIns: true,
+          lastLoginAt: true,
+          createdAt: true,
+          studentProfile: { select: { phone: true } },
+        },
+        orderBy: [{ role: 'asc' }, { name: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+    return { items, page, pageSize, total, maxFailedLogins: maxFailed };
   }
 
   private async settings() {

@@ -16,12 +16,47 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type ImportRow = Record<string, unknown>;
 
 @Injectable()
 export class RegistryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  // Distinct organisational units, used for filters and election scopes.
+  async facets(user: AuthenticatedUser) {
+    await this.requireViewPermission(user);
+    const distinct = async (
+      field: 'campus' | 'college' | 'school' | 'department',
+    ) =>
+      (
+        await this.prisma.registryRecord.findMany({
+          distinct: [field],
+          select: { [field]: true },
+          orderBy: { [field]: 'asc' },
+        })
+      ).map((row) => (row as unknown as Record<string, string>)[field]);
+    const [campuses, colleges, schools, departments] = await Promise.all([
+      distinct('campus'),
+      distinct('college'),
+      distinct('school'),
+      distinct('department'),
+    ]);
+    return { campuses, colleges, schools, departments };
+  }
+
+  // Add or correct one student on the eligibility list without a spreadsheet.
+  addRecord(user: AuthenticatedUser, row: Record<string, unknown>) {
+    return this.importRows(user, {
+      mode: 'merge',
+      sourceFilename: 'Manual entry',
+      students: [row],
+    });
+  }
 
   async list(
     user: AuthenticatedUser,
@@ -30,6 +65,7 @@ export class RegistryService {
       campus?: string;
       college?: string;
       school?: string;
+      enrolment?: string;
       page?: string;
       pageSize?: string;
     },
@@ -65,10 +101,20 @@ export class RegistryService {
       ...(query.campus ? { campus: query.campus } : {}),
       ...(query.college ? { college: query.college } : {}),
       ...(query.school ? { school: query.school } : {}),
+      ...(query.enrolment
+        ? {
+            enrolment: this.enumValue(
+              query.enrolment,
+              Object.values(EnrolmentStatus),
+              EnrolmentStatus.ACTIVE,
+            ),
+          }
+        : {}),
     };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.registryRecord.findMany({
         where,
+        include: { studentProfile: { select: { userId: true } } },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -247,6 +293,19 @@ export class RegistryService {
         };
       },
       { maxWait: 10_000, timeout: 120_000 },
+    );
+    const summary =
+      sourceFilename === 'Manual entry'
+        ? `${user.name} added or updated ${records[0].firstName} ${records[0].lastName} (${records[0].registrationNumber}) on the eligibility list.`
+        : `${user.name} imported ${result.imported} students from ${sourceFilename} (${mode.toLowerCase()}). The registry now holds ${result.total} records.`;
+    await this.notifications.toRoles(
+      [UserRole.SYSTEM_ADMINISTRATOR, UserRole.ELECTION_OFFICER],
+      {
+        kind: 'registry',
+        title: 'Eligibility list updated',
+        body: summary,
+        link: '/officer/registry',
+      },
     );
     return { success: true, ...result };
   }

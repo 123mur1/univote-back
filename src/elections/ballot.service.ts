@@ -19,12 +19,14 @@ import { createPublicKey } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { AuditService } from '../audit/audit.service';
+import { ElectionsService } from './elections.service';
 
 @Injectable()
 export class BallotService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly elections: ElectionsService,
   ) {}
 
   async cast(
@@ -34,6 +36,10 @@ export class BallotService {
   ) {
     if (user.role !== UserRole.STUDENT || !user.registrationNumber)
       throw new ForbiddenException('A student account is required to vote.');
+    if (user.impersonatorId)
+      throw new ForbiddenException(
+        'Ballots cannot be cast while an administrator is signed in as this student. Only the student can vote.',
+      );
     if (
       typeof payloadValue !== 'string' ||
       !payloadValue.trim() ||
@@ -60,6 +66,8 @@ export class BallotService {
         'Ballot payload must use the supported encryption envelope.',
       );
     }
+    // Apply any due open/close transition before checking the voting window.
+    await this.elections.syncStatuses(true);
     const election = await this.prisma.election.findUnique({
       where: { id: electionId },
     });

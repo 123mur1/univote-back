@@ -23,5 +23,6 @@ import { VoterRollService } from './voter-roll.service';
     NominationsService,
     VoterRollService,
   ],
+  exports: [ElectionsService],
 })
 export class ElectionsModule {}

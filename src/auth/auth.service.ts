@@ -1,6 +1,8 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -15,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from './auth.types';
 import { hashPassword, verifyPassword } from './passwords';
 import { TokenService } from './token.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type LoginInput = { identifier: unknown; password: unknown };
 type SignupInput = {
@@ -29,6 +32,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async login(input: LoginInput) {
@@ -190,11 +194,20 @@ export class AuthService {
       });
       return created;
     });
+    await this.notifications.toUser(user.id, {
+      kind: 'account',
+      title: 'Welcome to UniVote',
+      body: 'Your student account is ready. Check the elections open to you and the candidates standing.',
+      link: '/student',
+    });
 
     if (settings.studentOtpRequired) return this.startOtp(user.id, user.email);
     return this.completeLogin(user.id);
   }
 
+  // Public, first-time check. Returns the registry details a student needs to recognise their
+  // own record (no contact details, date of birth, GPA or disciplinary data) and why they can or
+  // cannot create an account.
   async checkStudentEligibility(registrationNumberValue: unknown) {
     const registrationNumber = this.string(
       registrationNumberValue,
@@ -203,29 +216,142 @@ export class AuthService {
       .trim()
       .toUpperCase();
     const settings = await this.settings();
-    if (!settings.allowStudentSignup)
-      throw new UnauthorizedException('Student sign-up is currently closed.');
     const student = await this.prisma.registryRecord.findUnique({
       where: { registrationNumber },
     });
+    if (!student)
+      return {
+        found: false,
+        eligible: false,
+        hasAccount: false,
+        signupOpen: settings.allowStudentSignup,
+        academicYear: settings.academicYearLabel,
+        reasons: [
+          'This registration number is not on the current student registry. Check it, or contact the registry office.',
+        ],
+        student: null,
+      };
     const today = new Date();
+    const reasons: string[] = [];
+    if (student.enrolment !== 'ACTIVE')
+      reasons.push(
+        `Your registry status is ${student.enrolment.toLowerCase()}, not active.`,
+      );
     if (
-      !student ||
-      student.enrolment !== 'ACTIVE' ||
-      (student.registeredAcademicYear &&
-        student.registeredAcademicYear !== settings.academicYearLabel) ||
-      (student.studyEnd && student.studyEnd < today)
-    ) {
+      student.registeredAcademicYear &&
+      student.registeredAcademicYear !== settings.academicYearLabel
+    )
+      reasons.push(
+        `You are registered for ${student.registeredAcademicYear}, not the current academic year ${settings.academicYearLabel}.`,
+      );
+    if (student.studyEnd && student.studyEnd < today)
+      reasons.push('Your study period has ended.');
+    const hasAccount = Boolean(
+      await this.prisma.user.findFirst({ where: { registrationNumber } }),
+    );
+    if (!settings.allowStudentSignup && !hasAccount)
+      reasons.push('Student sign-up is closed at the moment.');
+    return {
+      found: true,
+      eligible: reasons.length === 0,
+      hasAccount,
+      signupOpen: settings.allowStudentSignup,
+      academicYear: settings.academicYearLabel,
+      reasons,
+      student: {
+        registrationNumber: student.registrationNumber,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        college: student.college,
+        collegeCode: student.collegeCode,
+        school: student.school,
+        department: student.department,
+        programme: student.programme,
+        campus: student.campus,
+        level: student.level,
+        yearOfStudy: student.yearOfStudy,
+        enrolment: student.enrolment,
+        registeredAcademicYear: student.registeredAcademicYear,
+        studyStart: student.studyStart,
+        studyEnd: student.studyEnd,
+        emailHint: student.email ? this.maskEmail(student.email) : null,
+      },
+    };
+  }
+
+  async refresh(refreshTokenValue: unknown) {
+    const refreshToken = this.string(refreshTokenValue, 'refreshToken');
+    const payload = this.tokens.verify(refreshToken, 'refresh');
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+    if (
+      !user ||
+      !user.active ||
+      user.role !== payload.role ||
+      (payload.ver ?? 0) !== user.sessionVersion
+    )
       throw new UnauthorizedException(
-        'This registration number is not eligible to create an account.',
+        'Your session has ended. Please sign in again.',
       );
-    }
-    if (await this.prisma.user.findFirst({ where: { registrationNumber } })) {
+    return { ...this.tokens.issue(user), user: this.publicUser(user) };
+  }
+
+  async impersonate(admin: AuthenticatedUser, targetId: string) {
+    if (admin.role !== UserRole.SYSTEM_ADMINISTRATOR || admin.impersonatorId)
+      throw new ForbiddenException(
+        'Only a signed-in system administrator can open another account.',
+      );
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetId },
+    });
+    if (!target) throw new NotFoundException('User account was not found.');
+    if (target.id === admin.id)
+      throw new BadRequestException('You are already signed in as yourself.');
+    if (target.role === UserRole.SYSTEM_ADMINISTRATOR)
+      throw new ForbiddenException(
+        'Administrators cannot sign in as another administrator.',
+      );
+    if (!target.active)
       throw new BadRequestException(
-        'An account already exists for this registration number. Sign in instead.',
+        'Reactivate this account before signing in as it.',
       );
-    }
-    return { eligible: true };
+    await this.activity({
+      actorId: admin.id,
+      actorLabel: admin.email ?? admin.name,
+      actorRole: ActivityActorRole.ADMINISTRATOR,
+      type: ActivityType.ACCOUNT,
+      severity: ActivitySeverity.CRITICAL,
+      detail: `Administrator signed in as ${target.registrationNumber ?? target.email ?? target.name} for support.`,
+      beforeValue: admin.email ?? admin.name,
+      afterValue: `${target.role}: ${target.registrationNumber ?? target.email ?? target.name}`,
+    });
+    await this.notifications.toUser(target.id, {
+      kind: 'account',
+      title: 'An administrator opened your account',
+      body: `${admin.name} signed in to your account to help with a support request. Contact the election office if you did not expect this.`,
+    });
+    return {
+      ...this.tokens.issue(target, { impersonatorId: admin.id }),
+      user: this.publicUser(target),
+      impersonator: { id: admin.id, name: admin.name, email: admin.email },
+    };
+  }
+
+  async stopImpersonation(user: AuthenticatedUser) {
+    if (!user.impersonatorId) return { success: true };
+    const admin = await this.prisma.user.findUnique({
+      where: { id: user.impersonatorId },
+    });
+    await this.activity({
+      actorId: user.impersonatorId,
+      actorLabel: admin?.email ?? admin?.name ?? 'administrator',
+      actorRole: ActivityActorRole.ADMINISTRATOR,
+      type: ActivityType.ACCOUNT,
+      severity: ActivitySeverity.WARNING,
+      detail: `Administrator left the account of ${user.registrationNumber ?? user.email ?? user.name}.`,
+    });
+    return { success: true };
   }
 
   me(user: AuthenticatedUser) {
@@ -235,10 +361,12 @@ export class AuthService {
       name: user.name,
       email: user.email,
       registrationNumber: user.registrationNumber,
+      impersonatorId: user.impersonatorId ?? null,
     };
   }
 
   async logout(user: AuthenticatedUser) {
+    if (user.impersonatorId) return this.stopImpersonation(user);
     await this.activity({
       actorId: user.id,
       actorLabel: user.registrationNumber ?? user.email ?? user.name,
@@ -264,7 +392,7 @@ export class AuthService {
       detail: `Signed in as ${user.role}.`,
     });
     return {
-      ...this.tokens.issue(user.id, user.role),
+      ...this.tokens.issue(user),
       user: this.publicUser(user),
     };
   }
@@ -304,6 +432,12 @@ export class AuthService {
         academicYearLabel: '2026/2027',
       }
     );
+  }
+
+  private maskEmail(email: string) {
+    const [local, domain] = email.split('@');
+    if (!domain) return null;
+    return `${local.slice(0, 2)}${'*'.repeat(Math.max(1, local.length - 2))}@${domain}`;
   }
 
   private string(value: unknown, field: string) {
